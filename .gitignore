@@ -5,6 +5,7 @@ coverage/
 .DS_Store
 .env
 .env.local
+.tsbuildinfo
 
 # Provider configurations (contains API keys)
 provider-configs.json
