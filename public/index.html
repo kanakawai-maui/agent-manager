@@ -1,0 +1,2162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Manager — Dashboard</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #a371f7;
+      --cyan: #56d4dd;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    header {
+      background: linear-gradient(180deg, var(--surface) 0%, rgba(22, 27, 34, 0.95) 100%);
+      border-bottom: 1px solid var(--border);
+      padding: 12px 24px;
+      display: flex;
+      align-items: center;
+      gap: 24px;
+      flex-wrap: wrap;
+      flex-shrink: 0;
+      backdrop-filter: blur(10px);
+    }
+    h1 { font-size: 18px; font-weight: 600; white-space: nowrap; }
+    .stats {
+      display: flex; gap: 16px; font-size: 13px;
+    }
+    .stat { 
+      display: flex; align-items: center; gap: 6px;
+      padding: 4px 10px; border-radius: 20px;
+      background: rgba(255,255,255,0.03);
+      transition: all 0.3s ease;
+    }
+    .stat:hover { background: rgba(255,255,255,0.06); transform: translateY(-1px); }
+    .stat .dot { 
+      width: 8px; height: 8px; border-radius: 50%;
+      box-shadow: 0 0 8px currentColor;
+    }
+    .stat.total   .dot { background: var(--accent); color: var(--accent); }
+    .stat.running .dot { background: var(--cyan); color: var(--cyan); animation: dotPulse 1.5s infinite; }
+    .stat.queued  .dot { background: var(--yellow); color: var(--yellow); }
+    .stat.done    .dot { background: var(--green); color: var(--green); }
+    .stat.fail    .dot { background: var(--red); color: var(--red); }
+
+    @keyframes dotPulse {
+      0%, 100% { box-shadow: 0 0 8px currentColor; }
+      50% { box-shadow: 0 0 16px currentColor, 0 0 24px currentColor; }
+    }
+
+    .controls {
+      display: flex; gap: 8px; margin-left: auto; flex-wrap: wrap; align-items: center;
+    }
+    input, button, select {
+      font-size: 13px; padding: 6px 12px; border-radius: 6px;
+      border: 1px solid var(--border); background: var(--bg);
+      color: var(--text); outline: none;
+      transition: all 0.2s ease;
+    }
+    input:focus, select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15); }
+    button {
+      cursor: pointer; background: linear-gradient(135deg, var(--accent), #4090e0);
+      border-color: var(--accent);
+      color: #fff; font-weight: 500;
+      box-shadow: 0 2px 8px rgba(88, 166, 255, 0.3);
+    }
+    button:hover { filter: brightness(1.1); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(88, 166, 255, 0.4); }
+    button:active { transform: translateY(0); }
+    button.danger { background: linear-gradient(135deg, var(--red), #d03030); border-color: var(--red); box-shadow: 0 2px 8px rgba(248, 81, 73, 0.3); }
+    button.danger:hover { box-shadow: 0 4px 12px rgba(248, 81, 73, 0.4); }
+    button.secondary { background: var(--surface); border-color: var(--border); color: var(--text); box-shadow: none; }
+    button.secondary:hover { background: var(--border); box-shadow: none; }
+    #taskInput { width: 260px; }
+    #countInput { width: 60px; }
+    #parentSelect { 
+      width: 140px; 
+      background: var(--bg) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%238b949e' d='M2 4l4 4 4-4'/%3E%3C/svg%3E") no-repeat right 8px center;
+      -webkit-appearance: none;
+      padding-right: 28px;
+    }
+
+    /* Prompt Builder Panel */
+    .prompt-panel {
+      position: fixed;
+      top: 60px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      width: 700px;
+      max-width: 90vw;
+      z-index: 100;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      display: none;
+      backdrop-filter: blur(20px);
+    }
+    .prompt-panel.show { display: block; animation: panelSlide 0.25s ease-out; }
+    @keyframes panelSlide {
+      from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+
+    /* Provider Management Panel */
+    .provider-panel {
+      position: fixed;
+      top: 60px;
+      right: 24px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      width: 500px;
+      max-width: 90vw;
+      max-height: calc(100vh - 100px);
+      overflow-y: auto;
+      z-index: 100;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      display: none;
+      backdrop-filter: blur(20px);
+    }
+    .provider-panel.show { display: block; animation: panelSlide 0.25s ease-out; }
+    .provider-panel h3 {
+      font-size: 15px; font-weight: 600; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .provider-panel h3::before {
+      content: '⚙️'; font-size: 18px;
+    }
+    .provider-panel .close-btn {
+      position: absolute; top: 12px; right: 12px;
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 18px; padding: 4px;
+    }
+    .provider-panel .close-btn:hover { color: var(--text); }
+    
+    /* Provider Cards */
+    .provider-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .provider-card {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px 16px;
+      transition: all 0.2s;
+      position: relative;
+    }
+    .provider-card:hover {
+      border-color: var(--accent);
+      box-shadow: 0 4px 12px rgba(88, 166, 255, 0.1);
+    }
+    .provider-card.is-default {
+      border-color: var(--green);
+      background: rgba(63, 185, 80, 0.05);
+    }
+    .provider-card-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 8px;
+    }
+    .provider-card-icon {
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      background: var(--accent);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+    }
+    .provider-card-icon.openai { background: linear-gradient(135deg, #10a37f, #1ea588); }
+    .provider-card-icon.openrouter { background: linear-gradient(135deg, #8b5cf6, #a78bfa); }
+    .provider-card-icon.anthropic { background: linear-gradient(135deg, #d97757, #e69d85); }
+    .provider-card-icon.google { background: linear-gradient(135deg, #4285f4, #669df6); }
+    .provider-card-icon.ollama { background: linear-gradient(135deg, #8b949e, #a8b1bb); }
+    .provider-card-icon.azure-openai { background: linear-gradient(135deg, #0078d4, #50a0e0); }
+    .provider-card-icon.qwen { background: linear-gradient(135deg, #a371f7, #b896f9); }
+    .provider-card-icon.dummy { background: linear-gradient(135deg, #6e7681, #8b949e); }
+    
+    .provider-card-info {
+      flex: 1;
+    }
+    .provider-card-name {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 2px;
+    }
+    .provider-card-type {
+      font-size: 11px;
+      color: var(--muted);
+    }
+    .provider-card-badge {
+      font-size: 10px;
+      padding: 2px 8px;
+      border-radius: 10px;
+      background: rgba(63, 185, 80, 0.2);
+      color: var(--green);
+      text-transform: uppercase;
+      font-weight: 500;
+      letter-spacing: 0.5px;
+    }
+    .provider-card-details {
+      font-size: 12px;
+      color: var(--muted);
+      margin-top: 8px;
+      display: grid;
+      grid-template-columns: auto 1fr;
+      gap: 4px 8px;
+    }
+    .provider-card-details span:nth-child(odd) {
+      font-weight: 500;
+      color: var(--text);
+    }
+    .provider-card-apikey {
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px;
+    }
+    .provider-card-actions {
+      display: flex;
+      gap: 6px;
+      margin-top: 12px;
+    }
+    .provider-card-actions button {
+      flex: 1;
+      padding: 6px 10px;
+      font-size: 11px;
+    }
+    
+    /* Provider Form */
+    .provider-form {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .provider-form.collapsed {
+      display: none;
+    }
+    .provider-form h4 {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 12px;
+      color: var(--accent);
+    }
+    .provider-form .form-row {
+      margin-bottom: 12px;
+    }
+    .provider-form label {
+      display: block;
+      font-size: 12px;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 6px;
+    }
+    .provider-form input,
+    .provider-form select {
+      width: 100%;
+    }
+    .provider-form .form-actions {
+      display: flex;
+      gap: 8px;
+      margin-top: 16px;
+    }
+    .provider-form .form-actions button {
+      flex: 1;
+    }
+    .provider-form .form-hint {
+      font-size: 11px;
+      color: var(--muted);
+      margin-top: 4px;
+    }
+    .provider-form .checkbox-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .provider-form input[type="checkbox"] {
+      width: auto;
+      cursor: pointer;
+    }
+    
+    .provider-empty {
+      text-align: center;
+      padding: 32px 16px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+    
+    @keyframes panelSlide {
+      from { opacity: 0; transform: translateX(-50%) translateY(-10px); }
+      to { opacity: 1; transform: translateX(-50%) translateY(0); }
+    }
+    .prompt-panel h3 {
+      font-size: 15px; font-weight: 600; margin-bottom: 16px;
+      display: flex; align-items: center; gap: 10px;
+    }
+    .prompt-panel h3::before {
+      content: '✨'; font-size: 18px;
+    }
+    .prompt-panel .close-btn {
+      position: absolute; top: 12px; right: 12px;
+      background: none; border: none; color: var(--muted);
+      cursor: pointer; font-size: 18px; padding: 4px;
+    }
+    .prompt-panel .close-btn:hover { color: var(--text); }
+    
+    /* Suggested Prompts */
+    .prompt-section { margin-bottom: 20px; }
+    .prompt-section h4 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px;
+      color: var(--muted); margin-bottom: 10px;
+    }
+    .prompt-chips {
+      display: flex; flex-wrap: wrap; gap: 8px;
+    }
+    .prompt-chip {
+      padding: 8px 14px; border-radius: 20px;
+      background: rgba(88, 166, 255, 0.1);
+      border: 1px solid rgba(88, 166, 255, 0.2);
+      color: var(--accent); font-size: 12px;
+      cursor: pointer; transition: all 0.2s;
+      display: flex; align-items: center; gap: 6px;
+    }
+    .prompt-chip:hover {
+      background: rgba(88, 166, 255, 0.2);
+      border-color: var(--accent);
+      transform: translateY(-2px);
+    }
+    .prompt-chip.shell { background: rgba(163, 113, 247, 0.1); border-color: rgba(163, 113, 247, 0.2); color: var(--purple); }
+    .prompt-chip.shell:hover { background: rgba(163, 113, 247, 0.2); border-color: var(--purple); }
+    .prompt-chip.code { background: rgba(86, 212, 221, 0.1); border-color: rgba(86, 212, 221, 0.2); color: var(--cyan); }
+    .prompt-chip.code:hover { background: rgba(86, 212, 221, 0.2); border-color: var(--cyan); }
+    .prompt-chip.analysis { background: rgba(63, 185, 80, 0.1); border-color: rgba(63, 185, 80, 0.2); color: var(--green); }
+    .prompt-chip.analysis:hover { background: rgba(63, 185, 80, 0.2); border-color: var(--green); }
+    .prompt-chip.workflow { background: rgba(210, 153, 34, 0.1); border-color: rgba(210, 153, 34, 0.2); color: var(--yellow); }
+    .prompt-chip.workflow:hover { background: rgba(210, 153, 34, 0.2); border-color: var(--yellow); }
+    
+    /* Hierarchy Builder */
+    .hierarchy-builder {
+      background: var(--bg); border-radius: 10px; padding: 16px;
+      border: 1px solid var(--border);
+    }
+    .hierarchy-builder .row {
+      display: flex; gap: 12px; margin-bottom: 12px; align-items: center;
+    }
+    .hierarchy-builder label {
+      font-size: 12px; color: var(--muted); min-width: 80px;
+    }
+    .hierarchy-builder input, .hierarchy-builder select {
+      flex: 1;
+    }
+    .hierarchy-builder textarea {
+      width: 100%; min-height: 80px; resize: vertical;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px; padding: 10px;
+      background: var(--bg); color: var(--text);
+      border: 1px solid var(--border); border-radius: 6px;
+      outline: none;
+    }
+    .hierarchy-builder textarea:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+    }
+    .hierarchy-builder .actions {
+      display: flex; gap: 8px; margin-top: 16px; justify-content: flex-end;
+    }
+    .hierarchy-preview {
+      margin-top: 12px; padding: 10px;
+      background: rgba(0,0,0,0.2); border-radius: 6px;
+      font-family: 'SF Mono', Consolas, monospace;
+      font-size: 11px; color: var(--muted);
+      white-space: pre-wrap;
+    }
+    .hierarchy-preview .node-line {
+      padding: 2px 0;
+    }
+    .hierarchy-preview .node-line.active { color: var(--cyan); }
+    
+    /* Quick Actions Bar */
+    .quick-bar {
+      display: flex; gap: 6px; padding: 8px 24px;
+      background: rgba(22, 27, 34, 0.5);
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .quick-bar span {
+      font-size: 11px; color: var(--muted); margin-right: 8px;
+    }
+    .quick-chip {
+      padding: 4px 10px; border-radius: 12px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid var(--border);
+      color: var(--muted); font-size: 11px;
+      cursor: pointer; transition: all 0.15s;
+    }
+    .quick-chip:hover {
+      background: rgba(88, 166, 255, 0.1);
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    main { flex: 1; display: flex; overflow: hidden; min-height: 0; }
+
+    #treeContainer {
+      flex: 1; position: relative; overflow: hidden;
+      background: 
+        radial-gradient(ellipse at center, rgba(88, 166, 255, 0.03) 0%, transparent 70%),
+        var(--bg);
+    }
+    #treeContainer svg { width: 100%; height: 100%; }
+    
+    /* Animated grid background */
+    .grid-bg {
+      position: absolute; inset: 0; pointer-events: none;
+      background-image: 
+        linear-gradient(rgba(88, 166, 255, 0.03) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(88, 166, 255, 0.03) 1px, transparent 1px);
+      background-size: 50px 50px;
+      mask-image: radial-gradient(ellipse at center, black 30%, transparent 80%);
+    }
+
+    aside {
+      width: 340px; background: var(--surface); border-left: 1px solid var(--border);
+      display: flex; flex-direction: column; overflow: hidden; min-height: 0;
+    }
+    aside h2 {
+      font-size: 14px; font-weight: 600; padding: 12px 16px;
+      border-bottom: 1px solid var(--border); flex-shrink: 0;
+      display: flex; align-items: center; gap: 8px;
+    }
+    aside h2::before {
+      content: ''; width: 6px; height: 6px; border-radius: 50%;
+      background: var(--green); box-shadow: 0 0 8px var(--green);
+      animation: logPulse 2s infinite;
+    }
+    @keyframes logPulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.4; }
+    }
+    #logList {
+      flex: 1; overflow-y: auto; font-family: 'SF Mono', Consolas, monospace;
+      font-size: 12px; padding: 8px 12px; line-height: 1.6; min-height: 0;
+    }
+    .log-line { 
+      color: var(--muted); white-space: pre-wrap; word-break: break-all;
+      padding: 2px 0; border-left: 2px solid transparent; padding-left: 8px;
+      margin-left: -8px; transition: all 0.2s;
+    }
+    .log-line.event { color: var(--cyan); border-left-color: var(--cyan); }
+    .log-line.error { color: var(--red); border-left-color: var(--red); background: rgba(248, 81, 73, 0.05); }
+    .log-line.new { animation: logSlide 0.3s ease-out; }
+    @keyframes logSlide {
+      from { opacity: 0; transform: translateX(-10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+
+    /* Tree styles */
+    .node { transition: transform 0.4s cubic-bezier(0.34, 1.56, 0.64, 1); }
+    .node circle {
+      stroke-width: 1.5px; cursor: pointer; 
+      transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    }
+    .node:hover circle { transform: scale(1.4); filter: brightness(1.2); }
+    .node text {
+      font-size: 10px; fill: var(--text); pointer-events: none;
+      opacity: 0.8; transition: opacity 0.2s;
+    }
+    .node:hover text { opacity: 1; }
+    .node.depth-0 circle { r: 8; stroke-width: 2px; }
+    .node.depth-1 circle { r: 6; }
+    .node.depth-2 circle { r: 5; }
+    .node.depth-3 circle { r: 4; }
+    
+    /* Glow halos for active states */
+    .node-halo {
+      fill: none; pointer-events: none; opacity: 0.4;
+    }
+    
+    .link {
+      fill: none; stroke-width: 2px;
+      transition: stroke 0.3s, opacity 0.3s;
+    }
+    .link-glow {
+      fill: none; stroke-width: 6px; opacity: 0.15;
+      filter: blur(3px);
+    }
+    
+    /* Status colors with glow */
+    .status-queued   circle { fill: var(--yellow); stroke: #b38600; filter: drop-shadow(0 0 4px rgba(210, 153, 34, 0.5)); }
+    .status-spawning circle { fill: var(--purple); stroke: #8957e5; filter: drop-shadow(0 0 6px rgba(163, 113, 247, 0.6)); animation: spawnPulse 0.8s infinite; }
+    .status-idle     circle { fill: var(--muted);  stroke: #6e7681; }
+    .status-running  circle { fill: var(--cyan);   stroke: #39c5cf; filter: drop-shadow(0 0 8px rgba(86, 212, 221, 0.7)); animation: runPulse 1.2s infinite; }
+    .status-completed circle { fill: var(--green); stroke: #2ea043; opacity: 0.7; }
+    .status-failed   circle { fill: var(--red);    stroke: #da3633; filter: drop-shadow(0 0 6px rgba(248, 81, 73, 0.6)); animation: failShake 0.5s; }
+    .status-killed   circle { fill: #484f58; stroke: #6e7681; opacity: 0.5; }
+
+    @keyframes runPulse {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 8px rgba(86, 212, 221, 0.7)); }
+      50% { transform: scale(1.1); filter: drop-shadow(0 0 14px rgba(86, 212, 221, 0.9)); }
+    }
+    @keyframes spawnPulse {
+      0%, 100% { transform: scale(1); }
+      50% { transform: scale(1.15); }
+    }
+    @keyframes failShake {
+      0%, 100% { transform: translateX(0); }
+      20%, 60% { transform: translateX(-3px); }
+      40%, 80% { transform: translateX(3px); }
+    }
+
+    /* Particles for running connections */
+    .particle {
+      fill: var(--cyan);
+      filter: blur(1px);
+    }
+
+    /* Center status orbs */
+    .tree-orb .orb-ring-outer {
+      animation: orbSpin 12s linear infinite;
+      transform-origin: 0 0;
+    }
+    .tree-orb .orb-ring-inner {
+      animation: orbSpin 8s linear infinite reverse;
+      transform-origin: 0 0;
+    }
+    .tree-orb .orb-center {
+      transition: fill 0.4s, stroke 0.4s;
+    }
+    .tree-orb .orb-hit {
+      cursor: grab;
+    }
+    .tree-orb .orb-hit:active {
+      cursor: grabbing;
+    }
+    .tree-orb:hover .orb-center {
+      filter: brightness(1.4);
+    }
+    @keyframes orbSpin {
+      from { transform: rotate(0deg); }
+      to   { transform: rotate(360deg); }
+    }
+
+    /* Tooltip */
+    .tooltip {
+      position: fixed; 
+      background: linear-gradient(135deg, var(--surface), rgba(22, 27, 34, 0.98));
+      border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 18px; font-size: 12px;
+      pointer-events: none; opacity: 0; 
+      transition: opacity 0.2s, transform 0.2s;
+      transform: translateY(5px);
+      max-width: 320px; z-index: 999; 
+      box-shadow: 0 12px 40px rgba(0,0,0,.5), 0 0 0 1px rgba(255,255,255,0.05) inset;
+      backdrop-filter: blur(10px);
+    }
+    .tooltip.show { opacity: 1; transform: translateY(0); }
+    .tooltip h4 { font-size: 14px; margin-bottom: 8px; color: var(--accent); display: flex; align-items: center; gap: 8px; }
+    .tooltip h4::before {
+      content: ''; width: 8px; height: 8px; border-radius: 50%;
+      background: var(--accent);
+    }
+    .tooltip p { margin: 4px 0; color: var(--muted); }
+    .tooltip .task { color: var(--text); word-break: break-all; padding: 6px 8px; background: rgba(0,0,0,0.2); border-radius: 4px; margin-top: 6px; }
+    .tooltip .status-badge {
+      display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500;
+    }
+    .tooltip .status-badge.running { background: rgba(86, 212, 221, 0.2); color: var(--cyan); }
+    .tooltip .status-badge.queued { background: rgba(210, 153, 34, 0.2); color: var(--yellow); }
+    .tooltip .status-badge.completed { background: rgba(63, 185, 80, 0.2); color: var(--green); }
+    .tooltip .status-badge.failed { background: rgba(248, 81, 73, 0.2); color: var(--red); }
+    .tooltip .status-badge.spawning { background: rgba(163, 113, 247, 0.2); color: var(--purple); }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🤖 Agent Manager</h1>
+    <div class="stats">
+      <div class="stat total"><span class="dot"></span> Total: <b id="statTotal">0</b></div>
+      <div class="stat running"><span class="dot"></span> Running: <b id="statRunning">0</b></div>
+      <div class="stat queued"><span class="dot"></span> Queued: <b id="statQueued">0</b></div>
+      <div class="stat done"><span class="dot"></span> Done: <b id="statDone">0</b></div>
+      <div class="stat fail"><span class="dot"></span> Failed: <b id="statFailed">0</b></div>
+    </div>
+    <div class="controls">
+      <input id="taskInput" placeholder="Task (e.g. sh: echo hi)" />
+      <select id="parentSelect" title="Parent agent (optional)">
+        <option value="">No parent (root)</option>
+      </select>
+      <input id="countInput" type="number" value="1" min="1" max="100" title="Count" />
+      <button id="spawnBtn">Spawn</button>
+      <button id="builderBtn" class="secondary" title="Open Prompt Builder">✨ Builder</button>
+      <button id="providersBtn" class="secondary" title="Manage Providers">⚙️ Providers</button>
+      <button id="killAllBtn" class="danger">Kill All</button>
+    </div>
+  </header>
+
+  <!-- Quick Prompts Bar -->
+  <div class="quick-bar" id="quickBar">
+    <span>Quick:</span>
+  </div>
+
+  <!-- Prompt Builder Panel -->
+  <div class="prompt-panel" id="promptPanel">
+    <button class="close-btn" id="closePanelBtn">×</button>
+    <h3>Prompt Builder</h3>
+    
+    <div class="prompt-section">
+      <h4>🔧 Shell Commands</h4>
+      <div class="prompt-chips">
+        <div class="prompt-chip shell" data-prompt="sh: ls -la">📁 List files</div>
+        <div class="prompt-chip shell" data-prompt="sh: pwd">📍 Current dir</div>
+        <div class="prompt-chip shell" data-prompt="sh: cat package.json">📄 Read package.json</div>
+        <div class="prompt-chip shell" data-prompt="sh: git status">🔀 Git status</div>
+        <div class="prompt-chip shell" data-prompt="sh: git log --oneline -10">📜 Git log</div>
+        <div class="prompt-chip shell" data-prompt="sh: npm test">🧪 Run tests</div>
+        <div class="prompt-chip shell" data-prompt="sh: npm run build">🏗️ Build project</div>
+        <div class="prompt-chip shell" data-prompt="sh: docker ps">🐳 Docker containers</div>
+      </div>
+    </div>
+
+    <div class="prompt-section">
+      <h4>💻 Code Tasks</h4>
+      <div class="prompt-chips">
+        <div class="prompt-chip code" data-prompt="Analyze the code structure">🔍 Analyze structure</div>
+        <div class="prompt-chip code" data-prompt="Find all TODO comments in the codebase">📋 Find TODOs</div>
+        <div class="prompt-chip code" data-prompt="Generate unit tests for the main module">🧪 Generate tests</div>
+        <div class="prompt-chip code" data-prompt="Refactor this function for better readability">✨ Refactor code</div>
+        <div class="prompt-chip code" data-prompt="Add TypeScript types to this file">📝 Add types</div>
+        <div class="prompt-chip code" data-prompt="Create API documentation">📚 Document API</div>
+        <div class="prompt-chip code" data-prompt="Fix linting errors">🔧 Fix lint</div>
+        <div class="prompt-chip code" data-prompt="Optimize performance">⚡ Optimize</div>
+      </div>
+    </div>
+
+    <div class="prompt-section">
+      <h4>📊 Analysis & Research</h4>
+      <div class="prompt-chips">
+        <div class="prompt-chip analysis" data-prompt="Summarize this project's architecture">🏛️ Architecture summary</div>
+        <div class="prompt-chip analysis" data-prompt="Find security vulnerabilities">🔒 Security audit</div>
+        <div class="prompt-chip analysis" data-prompt="Analyze dependencies for updates">📦 Check deps</div>
+        <div class="prompt-chip analysis" data-prompt="Profile memory usage">💾 Memory profile</div>
+        <div class="prompt-chip analysis" data-prompt="Find dead code">🪦 Dead code</div>
+        <div class="prompt-chip analysis" data-prompt="Calculate code complexity metrics">📈 Complexity</div>
+      </div>
+    </div>
+
+    <div class="prompt-section">
+      <h4>🔄 Multi-Agent Workflows</h4>
+      <div class="prompt-chips">
+        <div class="prompt-chip workflow" data-prompt="Spawn 3 child agents to process files in parallel">🌳 Parallel processing</div>
+        <div class="prompt-chip workflow" data-prompt="Create a pipeline: lint → test → build">🔗 CI Pipeline</div>
+        <div class="prompt-chip workflow" data-prompt="Fan-out: analyze each module separately">📊 Fan-out analysis</div>
+        <div class="prompt-chip workflow" data-prompt="Coordinate: one agent writes, another reviews">👥 Writer/Reviewer</div>
+      </div>
+    </div>
+
+    <div class="prompt-section">
+      <h4>🌲 Hierarchy Builder</h4>
+      <div class="hierarchy-builder">
+        <div class="row">
+          <label>Structure:</label>
+          <select id="hierarchyType">
+            <option value="single">Single Agent</option>
+            <option value="chain">Chain (A → B → C)</option>
+            <option value="fanout">Fan-out (1 parent, N children)</option>
+            <option value="tree">Custom Tree</option>
+          </select>
+        </div>
+        <div class="row" id="chainDepthRow" style="display:none;">
+          <label>Chain depth:</label>
+          <input type="number" id="chainDepth" value="3" min="2" max="10" />
+        </div>
+        <div class="row" id="fanoutCountRow" style="display:none;">
+          <label>Children:</label>
+          <input type="number" id="fanoutCount" value="3" min="2" max="20" />
+        </div>
+        <div class="row" id="customTreeRow" style="display:none;">
+          <label>Tree DSL:</label>
+        </div>
+        <textarea id="customTreeInput" style="display:none;" placeholder="Define tree structure (YAML-like):
+root: Coordinate all tasks
+  ├─ child1: Process files
+  │   ├─ grandchild1: File A
+  │   └─ grandchild2: File B  
+  └─ child2: Run tests"></textarea>
+        <div class="row">
+          <label>Task template:</label>
+          <input type="text" id="hierarchyTask" placeholder="Task for each agent (use {n} for index)" />
+        </div>
+        <div class="hierarchy-preview" id="hierarchyPreview"></div>
+        <div class="actions">
+          <button class="secondary" id="previewHierarchyBtn">Preview</button>
+          <button id="spawnHierarchyBtn">Spawn Hierarchy</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Provider Management Panel -->
+  <div class="provider-panel" id="providerPanel">
+    <button class="close-btn" id="closeProviderPanelBtn">×</button>
+    <h3>Provider Management</h3>
+    
+    <div class="provider-form collapsed" id="providerForm">
+      <h4 id="formTitle">Add New Provider</h4>
+      <div class="form-row">
+        <label>Provider Type</label>
+        <select id="providerType">
+          <option value="">Select a provider...</option>
+        </select>
+      </div>
+      <div class="form-row">
+        <label>Configuration Name</label>
+        <input type="text" id="providerName" placeholder="e.g., My OpenAI Account" />
+        <div class="form-hint">A friendly name to identify this configuration</div>
+      </div>
+      <div class="form-row">
+        <label>API Key</label>
+        <input type="password" id="providerApiKey" placeholder="sk-..." />
+        <div class="form-hint">Your API key (leave empty for local providers like Ollama)</div>
+      </div>
+      <div class="form-row">
+        <label>Base URL (Optional)</label>
+        <input type="text" id="providerBaseUrl" placeholder="https://api.openai.com/v1" />
+        <div class="form-hint">Custom API endpoint (usually not needed)</div>
+      </div>
+      <div class="form-row">
+        <label>Default Model (Optional)</label>
+        <input type="text" id="providerModel" placeholder="gpt-4o" />
+        <div class="form-hint">Model to use by default with this provider</div>
+      </div>
+      <div class="form-row" style="background: rgba(88, 166, 255, 0.05); padding: 12px; border-radius: 6px; border: 1px solid rgba(88, 166, 255, 0.2);">
+        <div class="checkbox-row" style="margin-bottom: 4px;">
+          <input type="checkbox" id="providerIsDefault" />
+          <label for="providerIsDefault" style="margin: 0; font-weight: 600; color: var(--accent);">⭐ Set as default provider</label>
+        </div>
+        <div class="form-hint" style="margin-left: 24px;">
+          The default provider will be used automatically by all agents. Only one provider can be default.
+        </div>
+      </div>
+      <div class="form-actions">
+        <button class="secondary" id="cancelFormBtn">Cancel</button>
+        <button id="saveProviderBtn">Save</button>
+      </div>
+    </div>
+    
+    <button id="addProviderBtn" class="secondary" style="width: 100%; margin-bottom: 16px;">
+      + Add New Provider
+    </button>
+    
+    <div class="provider-list" id="providerList">
+      <div class="provider-empty">
+        No providers configured yet. Click "Add New Provider" to get started.
+      </div>
+    </div>
+  </div>
+
+  <main>
+    <div id="treeContainer">
+      <div class="grid-bg"></div>
+    </div>
+    <aside>
+      <h2>Event Log</h2>
+      <div id="logList"></div>
+    </aside>
+  </main>
+
+  <div class="tooltip" id="tooltip"></div>
+
+  <script>
+(function() {
+  // ── State ─────────────────────────────────────────────────────────────────
+  const agents = new Map();   // apid → agent record
+  let stats = { total: 0, active: 0, queued: 0 };
+  let particles = [];
+  let animationFrame;
+
+  // ── Status colors for gradients ───────────────────────────────────────────
+  const statusColors = {
+    queued: { main: '#d29922', glow: 'rgba(210, 153, 34, 0.5)' },
+    spawning: { main: '#a371f7', glow: 'rgba(163, 113, 247, 0.6)' },
+    idle: { main: '#8b949e', glow: 'rgba(139, 148, 158, 0.3)' },
+    running: { main: '#56d4dd', glow: 'rgba(86, 212, 221, 0.7)' },
+    completed: { main: '#3fb950', glow: 'rgba(63, 185, 80, 0.4)' },
+    failed: { main: '#f85149', glow: 'rgba(248, 81, 73, 0.6)' },
+    killed: { main: '#484f58', glow: 'rgba(72, 79, 88, 0.3)' }
+  };
+
+  // ── DOM ───────────────────────────────────────────────────────────────────
+  const $total   = document.getElementById('statTotal');
+  const $running = document.getElementById('statRunning');
+  const $queued  = document.getElementById('statQueued');
+  const $done    = document.getElementById('statDone');
+  const $failed  = document.getElementById('statFailed');
+  const $task    = document.getElementById('taskInput');
+  const $count   = document.getElementById('countInput');
+  const $spawn   = document.getElementById('spawnBtn');
+  const $killAll = document.getElementById('killAllBtn');
+  const $logList = document.getElementById('logList');
+  const $tooltip = document.getElementById('tooltip');
+  const container = document.getElementById('treeContainer');
+
+  // New UI elements
+  const $parentSelect = document.getElementById('parentSelect');
+  const $builderBtn = document.getElementById('builderBtn');
+  const $promptPanel = document.getElementById('promptPanel');
+  const $closePanelBtn = document.getElementById('closePanelBtn');
+  const $quickBar = document.getElementById('quickBar');
+  const $hierarchyType = document.getElementById('hierarchyType');
+  const $chainDepthRow = document.getElementById('chainDepthRow');
+  const $fanoutCountRow = document.getElementById('fanoutCountRow');
+  const $customTreeRow = document.getElementById('customTreeRow');
+  const $customTreeInput = document.getElementById('customTreeInput');
+  const $hierarchyTask = document.getElementById('hierarchyTask');
+  const $hierarchyPreview = document.getElementById('hierarchyPreview');
+  const $previewHierarchyBtn = document.getElementById('previewHierarchyBtn');
+  const $spawnHierarchyBtn = document.getElementById('spawnHierarchyBtn');
+  const $chainDepth = document.getElementById('chainDepth');
+  const $fanoutCount = document.getElementById('fanoutCount');
+
+  // Quick prompts to show in quick bar (most used)
+  const quickPrompts = [
+    { label: 'ls -la', prompt: 'sh: ls -la' },
+    { label: 'git status', prompt: 'sh: git status' },
+    { label: 'npm test', prompt: 'sh: npm test' },
+    { label: 'analyze', prompt: 'Analyze the code structure' },
+    { label: 'find TODOs', prompt: 'Find all TODO comments' },
+  ];
+
+  // Initialize quick bar
+  quickPrompts.forEach(qp => {
+    const chip = document.createElement('div');
+    chip.className = 'quick-chip';
+    chip.textContent = qp.label;
+    chip.addEventListener('click', () => {
+      $task.value = qp.prompt;
+      $task.focus();
+    });
+    $quickBar.appendChild(chip);
+  });
+
+  // ── SVG setup ─────────────────────────────────────────────────────────────
+  const svg = d3.select(container).append('svg');
+  
+  // Add defs for gradients and filters
+  const defs = svg.append('defs');
+  
+  // Glow filter for nodes
+  const glowFilter = defs.append('filter')
+    .attr('id', 'nodeGlow')
+    .attr('x', '-50%').attr('y', '-50%')
+    .attr('width', '200%').attr('height', '200%');
+  glowFilter.append('feGaussianBlur').attr('stdDeviation', '3').attr('result', 'coloredBlur');
+  const glowMerge = glowFilter.append('feMerge');
+  glowMerge.append('feMergeNode').attr('in', 'coloredBlur');
+  glowMerge.append('feMergeNode').attr('in', 'SourceGraphic');
+  
+  // Gradient for active links
+  const activeGradient = defs.append('linearGradient')
+    .attr('id', 'linkGradientActive')
+    .attr('gradientUnits', 'userSpaceOnUse');
+  activeGradient.append('stop').attr('offset', '0%').attr('stop-color', '#58a6ff').attr('stop-opacity', 0.3);
+  activeGradient.append('stop').attr('offset', '50%').attr('stop-color', '#56d4dd').attr('stop-opacity', 0.8);
+  activeGradient.append('stop').attr('offset', '100%').attr('stop-color', '#58a6ff').attr('stop-opacity', 0.3);
+
+  const g = svg.append('g');
+  const zoom = d3.zoom().scaleExtent([0.1, 4]).on('zoom', e => g.attr('transform', e.transform));
+  svg.call(zoom);
+
+  // Layer ordering: center orbs → glow links → links → halos → particles → nodes
+  const centerOrbGroup = g.append('g').attr('class', 'center-orbs');
+  const linkGlowGroup = g.append('g').attr('class', 'link-glows');
+  const linkGroup = g.append('g').attr('class', 'links');
+  const haloGroup = g.append('g').attr('class', 'halos');
+  const particleGroup = g.append('g').attr('class', 'particles');
+  const nodeGroup = g.append('g').attr('class', 'nodes');
+
+  // ── Tree layout ───────────────────────────────────────────────────────────
+  let currentNodes = [];
+  let currentLinks = [];
+
+  // A separate SVG layer for center orbs (status nodes)
+  // (declared above in layer ordering)
+
+  function buildForests() {
+    // Returns an array of separate hierarchy roots (one per independent tree)
+    const map = new Map();
+    for (const a of agents.values()) map.set(a.apid, { ...a, children: [] });
+    const roots = [];
+    for (const a of agents.values()) {
+      const node = map.get(a.apid);
+      if (a.parentApid && map.has(a.parentApid)) {
+        map.get(a.parentApid).children.push(node);
+      } else {
+        roots.push(node);
+      }
+    }
+    return roots;
+  }
+
+  // Summarise a d3 hierarchy subtree for the status-orb tooltip
+  function subtreeSummary(hierarchy) {
+    const all = hierarchy.descendants();
+    const counts = { running: 0, spawning: 0, queued: 0, completed: 0, failed: 0, killed: 0, idle: 0 };
+    for (const n of all) {
+      const s = n.data.status || 'idle';
+      counts[s] = (counts[s] || 0) + 1;
+    }
+    return { total: all.length, counts };
+  }
+
+  // Pick a dominant color for a subtree
+  function subtreeColor(summary) {
+    const { counts } = summary;
+    if (counts.failed > 0) return statusColors.failed.main;
+    if (counts.running > 0 || counts.spawning > 0) return statusColors.running.main;
+    if (counts.queued > 0) return statusColors.queued.main;
+    if (counts.completed === summary.total) return statusColors.completed.main;
+    return statusColors.idle.main;
+  }
+
+  // Per-tree user-dragged position overrides: rootApid → {x, y}
+  const treePositions = new Map();
+
+  // Arrange multiple tree centers across the canvas so they don't overlap
+  function arrangeCenters(roots, width, height) {
+    const count = roots.length;
+    const defaults = [];
+    if (count === 1) {
+      defaults.push({ x: width / 2, y: height / 2 });
+    } else {
+      const cols = Math.ceil(Math.sqrt(count));
+      const rows = Math.ceil(count / cols);
+      const padX = width  / (cols + 1);
+      const padY = height / (rows + 1);
+      for (let i = 0; i < count; i++) {
+        defaults.push({ x: ((i % cols) + 1) * padX, y: (Math.floor(i / cols) + 1) * padY });
+      }
+    }
+    // Merge with user overrides
+    return roots.map((r, i) => treePositions.get(r.apid) || defaults[i]);
+  }
+
+  function renderTree() {
+    const { width, height } = container.getBoundingClientRect();
+    if (!width || !height) return;
+    svg.attr('width', width).attr('height', height);
+
+    const roots = buildForests();
+
+    if (!roots.length) {
+      linkGlowGroup.selectAll('path').transition().duration(150).attr('opacity', 0).remove();
+      linkGroup.selectAll('path').transition().duration(150).attr('opacity', 0).remove();
+      haloGroup.selectAll('circle').transition().duration(100).attr('r', 0).remove();
+      nodeGroup.selectAll('g.node').transition().duration(150).attr('opacity', 0).remove();
+      centerOrbGroup.selectAll('g.tree-orb').transition().duration(150).attr('opacity', 0).remove();
+      particleGroup.selectAll('circle').remove();
+      particles = [];
+      return;
+    }
+
+    const centers = arrangeCenters(roots, width, height);
+    const minRadius = 110;
+    const ringSpacing = 95;
+
+    // Build all nodes/links across all trees
+    const allNodes = [];
+    const allLinks = [];
+    const orbData  = [];  // one entry per tree root
+
+    roots.forEach((rootData, treeIdx) => {
+      const cx = centers[treeIdx].x;
+      const cy = centers[treeIdx].y;
+
+      const hierarchy = d3.hierarchy(rootData);
+      const maxDepth = d3.max(hierarchy.descendants(), d => d.depth) || 1;
+
+      const treeLayout = d3.tree()
+        .size([2 * Math.PI, maxDepth * ringSpacing])
+        .separation((a, b) => a.parent === b.parent ? 1.5 : 3);
+      treeLayout(hierarchy);
+
+      // Convert polar → cartesian centred on cx,cy
+      hierarchy.descendants().forEach(n => {
+        const angle  = n.x - Math.PI / 2;
+        const radius = n.y + minRadius;
+        n.polarX = n.x;
+        n.polarY = radius;
+        n.cx = cx;
+        n.cy = cy;
+        n.x  = cx + radius * Math.cos(angle);
+        n.y  = cy + radius * Math.sin(angle);
+      });
+
+      // Recompute link cartesian coords after conversion
+      hierarchy.links().forEach(l => {
+        const sA = l.source.polarX - Math.PI / 2;
+        const sR = l.source.polarY;
+        l.source.x = cx + sR * Math.cos(sA);
+        l.source.y = cy + sR * Math.sin(sA);
+        const tA = l.target.polarX - Math.PI / 2;
+        const tR = l.target.polarY;
+        l.target.x = cx + tR * Math.cos(tA);
+        l.target.y = cy + tR * Math.sin(tA);
+      });
+
+      // Tag each node with its tree root id for drag tracking
+      hierarchy.descendants().forEach(n => { n.treeId = rootData.apid; });
+      allNodes.push(...hierarchy.descendants());
+      allLinks.push(...hierarchy.links());
+
+      // Status orb for this tree's center
+      const summary = subtreeSummary(hierarchy);
+      const color   = subtreeColor(summary);
+      orbData.push({
+        id: rootData.apid,
+        cx, cy, color, summary,
+        rootData,
+        treeIndex: treeIdx,
+      });
+    });
+
+    currentNodes = allNodes;
+    currentLinks = allLinks;
+
+    // ── Center Status Orbs ────────────────────────────────────────────────
+    const orbSel = centerOrbGroup.selectAll('g.tree-orb').data(orbData, d => d.id);
+    orbSel.exit().transition().duration(200).attr('opacity', 0).remove();
+
+    const orbEnter = orbSel.enter().append('g')
+      .attr('class', 'tree-orb')
+      .attr('opacity', 0)
+      .attr('transform', d => `translate(${d.cx},${d.cy})`);
+
+    // Outer pulse ring
+    orbEnter.append('circle').attr('class', 'orb-ring-outer').attr('r', 44).attr('fill', 'none').attr('stroke-width', 1).attr('stroke-dasharray', '8,4');
+    // Inner ring
+    orbEnter.append('circle').attr('class', 'orb-ring-inner').attr('r', 28).attr('fill', 'none').attr('stroke-width', 1.5);
+    // Center filled circle
+    orbEnter.append('circle').attr('class', 'orb-center').attr('r', 14).attr('stroke-width', 2);
+    // Label (root agent id, truncated)
+    orbEnter.append('text').attr('class', 'orb-label').attr('text-anchor', 'middle').attr('dy', 58).attr('font-size', '10px').attr('fill', 'var(--muted)');
+    // Sub-count label
+    orbEnter.append('text').attr('class', 'orb-count').attr('text-anchor', 'middle').attr('dy', '4px').attr('font-size', '10px').attr('font-weight', '600').attr('fill', '#fff').attr('pointer-events', 'none');
+    // Invisible hit area for hover
+    orbEnter.append('circle').attr('class', 'orb-hit').attr('r', 50).attr('fill', 'transparent').attr('cursor', 'pointer');
+
+    const orbUpdate = orbEnter.merge(orbSel);
+    orbUpdate.transition().duration(350).ease(d3.easeBackOut.overshoot(1.1))
+      .attr('opacity', 1)
+      .attr('transform', d => `translate(${d.cx},${d.cy})`);
+
+    orbUpdate.select('.orb-ring-outer')
+      .attr('stroke', d => d.color)
+      .attr('opacity', 0.35);
+    orbUpdate.select('.orb-ring-inner')
+      .attr('stroke', d => d.color)
+      .attr('opacity', 0.6);
+    orbUpdate.select('.orb-center')
+      .attr('fill', d => d.color + '33')
+      .attr('stroke', d => d.color);
+    orbUpdate.select('.orb-label')
+      .text(d => friendlyName(d.rootData.task));
+    orbUpdate.select('.orb-count')
+      .text(d => d.summary.total);
+
+    // Hover for status summary tooltip
+    orbUpdate.select('.orb-hit')
+      .on('mouseover', (e, d) => showOrbTooltip(e, d))
+      .on('mousemove', (e, d) => showOrbTooltip(e, d))
+      .on('mouseout', hideTooltip);
+
+    // Drag to reposition entire tree
+    const treeDrag = d3.drag()
+      .on('start', function(event, d) {
+        svg.on('.zoom', null);  // suspend canvas pan while dragging
+        hideTooltip();
+        d3.select(this).raise();
+      })
+      .on('drag', function(event, d) {
+        // Convert screen coords to SVG-group coords using current zoom transform
+        const t = d3.zoomTransform(svg.node());
+        const [gx, gy] = t.invert([event.sourceEvent.clientX, event.sourceEvent.clientY]);
+        treePositions.set(d.id, { x: gx, y: gy });
+        renderTreeImmediate();  // immediate re-render, no transitions
+      })
+      .on('end', () => {
+        svg.call(zoom);  // restore canvas pan
+      });
+
+    orbUpdate.call(treeDrag);
+
+    // ── Links ──────────────────────────────────────────────────────────────
+    const linkPath = d => {
+      const sx = d.source.x, sy = d.source.y;
+      const tx = d.target.x, ty = d.target.y;
+      const mx = (sx + tx) / 2 + (ty - sy) * 0.15;
+      const my = (sy + ty) / 2 - (tx - sx) * 0.15;
+      return `M${sx},${sy} Q${mx},${my} ${tx},${ty}`;
+    };
+
+    const linkGlowSel = linkGlowGroup.selectAll('path').data(allLinks, d => d.target.data.apid);
+    linkGlowSel.exit().transition().duration(200).attr('opacity', 0).remove();
+    linkGlowSel.enter().append('path').attr('class', 'link-glow').attr('opacity', 0).attr('d', linkPath)
+      .merge(linkGlowSel)
+      .transition().duration(250).ease(d3.easeCubicInOut)
+      .attr('d', linkPath)
+      .attr('stroke', d => statusColors[d.target.data.status]?.main || '#30363d')
+      .attr('opacity', d => {
+        const s = d.target.data.status;
+        return (s === 'running' || s === 'spawning') ? 0.3 : 0;
+      });
+
+    const linkSel = linkGroup.selectAll('path').data(allLinks, d => d.target.data.apid);
+    linkSel.exit().transition().duration(200).attr('opacity', 0).remove();
+    linkSel.enter().append('path').attr('class', 'link').attr('opacity', 0).attr('d', linkPath)
+      .merge(linkSel)
+      .transition().duration(250).ease(d3.easeCubicInOut)
+      .attr('d', linkPath)
+      .attr('stroke', d => {
+        const s = d.target.data.status;
+        if (s === 'running' || s === 'spawning') return statusColors[s].main;
+        if (s === 'completed') return 'rgba(63, 185, 80, 0.4)';
+        if (s === 'failed')    return 'rgba(248, 81, 73, 0.5)';
+        return '#30363d';
+      })
+      .attr('opacity', 1);
+
+    // ── Halos ──────────────────────────────────────────────────────────────
+    const activeNodes = allNodes.filter(n => n.data.status === 'running' || n.data.status === 'spawning');
+    const haloSel = haloGroup.selectAll('circle').data(activeNodes, d => d.data.apid);
+    haloSel.exit().transition().duration(150).attr('r', 0).attr('opacity', 0).remove();
+    haloSel.enter().append('circle').attr('class', 'node-halo').attr('r', 0)
+      .merge(haloSel)
+      .attr('cx', d => d.x).attr('cy', d => d.y)
+      .attr('stroke', d => statusColors[d.data.status]?.main || '#58a6ff')
+      .transition().duration(300).ease(d3.easeElasticOut.amplitude(1).period(0.5))
+      .attr('r', d => d.data.status === 'running' ? 20 : 16)
+      .attr('stroke-width', 2).attr('stroke-dasharray', '4,4');
+
+    // ── Nodes ──────────────────────────────────────────────────────────────
+    const nodeSel = nodeGroup.selectAll('g.node').data(allNodes, d => d.data.apid);
+    nodeSel.exit().transition().duration(200).style('opacity', 0)
+      .attr('transform', d => `translate(${d.x},${d.y}) scale(0.3)`).remove();
+
+    const nodeEnter = nodeSel.enter().append('g').attr('class', 'node')
+      .style('opacity', 0).attr('transform', d => `translate(${d.x},${d.y}) scale(0.5)`);
+    nodeEnter.append('circle');
+    nodeEnter.append('text').attr('text-anchor', 'middle');
+
+    const nodeUpdate = nodeEnter.merge(nodeSel);
+    const getDepth = d => Math.min(d.depth, 3);
+    nodeUpdate.attr('class', d => `node status-${d.data.status} depth-${getDepth(d)}`)
+      .transition().duration(350).ease(d3.easeBackOut.overshoot(1.2))
+      .style('opacity', 1).attr('transform', d => `translate(${d.x},${d.y}) scale(1)`);
+
+    const radiusByDepth = [8, 6, 5, 4];
+    nodeUpdate.select('circle').attr('r', d => radiusByDepth[getDepth(d)] || 4);
+    nodeUpdate.select('text')
+      .attr('dy', d => -(radiusByDepth[getDepth(d)] || 4) - 4)
+      .attr('font-size', d => d.depth === 0 ? '11px' : '10px')
+      .attr('fill', d => d.depth === 0 ? 'var(--text)' : null)
+      .text(d => d.depth === 0 ? friendlyName(d.data.task) : d.data.apid);
+
+    nodeUpdate.select('circle')
+      .on('mouseover', (e, d) => showTooltip(e, d.data))
+      .on('mouseout', hideTooltip)
+      .on('click', (e, d) => {
+        if (confirm(`Kill agent ${d.data.apid} and its subtree?`)) killAgent(d.data.apid);
+      });
+
+    updateParticles(allLinks);
+  }
+
+  // ── Status Orb Tooltip ────────────────────────────────────────────────────
+  function showOrbTooltip(event, orb) {
+    const { counts, total } = orb.summary;
+    const name = friendlyName(orb.rootData.task);
+    const rows = Object.entries(counts)
+      .filter(([, v]) => v > 0)
+      .map(([k, v]) => `<p><span class="status-badge ${k}">${k}</span> <b>${v}</b></p>`)
+      .join('');
+    $tooltip.innerHTML = `
+      <h4>🌐 ${escapeHtml(name)} <small style="color:var(--muted);font-size:11px">${escapeHtml(orb.id)}</small></h4>
+      <p style="margin-bottom:6px;" class="task">${escapeHtml(orb.rootData.task)}</p>
+      <p style="margin-bottom:8px;color:var(--muted)"><b>${total}</b> agent${total !== 1 ? 's' : ''} in subtree</p>
+      ${rows}
+    `;
+    $tooltip.classList.add('show');
+    const pad = 12;
+    let x = event.clientX + pad, y = event.clientY + pad;
+    if (x + 320 > window.innerWidth) x = event.clientX - 320 - pad;
+    if (y + 200 > window.innerHeight) y = event.clientY - 200 - pad;
+    $tooltip.style.left = x + 'px';
+    $tooltip.style.top  = y + 'px';
+  }
+
+  // ── Particle System ───────────────────────────────────────────────────────
+  function updateParticles(links) {
+    // Create particles for running connections
+    const runningLinks = links.filter(l => l.target.data.status === 'running');
+    
+    // Remove particles for links no longer running
+    particles = particles.filter(p => {
+      const stillRunning = runningLinks.some(l => l.target.data.apid === p.linkId);
+      return stillRunning;
+    });
+    
+    // Add new particles for running links
+    runningLinks.forEach(link => {
+      const existingCount = particles.filter(p => p.linkId === link.target.data.apid).length;
+      if (existingCount < 3) {
+        particles.push({
+          linkId: link.target.data.apid,
+          progress: Math.random(),
+          speed: 0.005 + Math.random() * 0.008,
+          size: 2 + Math.random() * 2,
+          source: { x: link.source.x, y: link.source.y },
+          target: { x: link.target.x, y: link.target.y }
+        });
+      }
+    });
+  }
+
+  function animateParticles() {
+    // Update particle positions
+    particles.forEach(p => {
+      p.progress += p.speed;
+      if (p.progress > 1) p.progress = 0;
+    });
+
+    // Render particles
+    const particleSel = particleGroup.selectAll('circle.particle')
+      .data(particles, (d, i) => d.linkId + '-' + i);
+    
+    particleSel.exit().remove();
+    
+    particleSel.enter().append('circle')
+      .attr('class', 'particle')
+      .merge(particleSel)
+      .attr('r', d => d.size)
+      .attr('cx', d => {
+        const t = d.progress;
+        // Quadratic bezier interpolation
+        const mx = (d.source.x + d.target.x) / 2 + (d.target.y - d.source.y) * 0.15;
+        return (1-t)*(1-t)*d.source.x + 2*(1-t)*t*mx + t*t*d.target.x;
+      })
+      .attr('cy', d => {
+        const t = d.progress;
+        const my = (d.source.y + d.target.y) / 2 - (d.target.x - d.source.x) * 0.15;
+        return (1-t)*(1-t)*d.source.y + 2*(1-t)*t*my + t*t*d.target.y;
+      })
+      .attr('opacity', d => {
+        // Fade in and out at endpoints
+        const fade = Math.sin(d.progress * Math.PI);
+        return fade * 0.8;
+      });
+
+    // Animate halos rotation
+    haloGroup.selectAll('circle')
+      .attr('stroke-dashoffset', function() {
+        const current = parseFloat(d3.select(this).attr('stroke-dashoffset') || 0);
+        return current - 0.5;
+      });
+
+    animationFrame = requestAnimationFrame(animateParticles);
+  }
+
+  // Start animation loop
+  animateParticles();
+
+  // ── Tooltip ───────────────────────────────────────────────────────────────
+  function showTooltip(event, agent) {
+    const dur = agent.durationMs != null ? `${(agent.durationMs / 1000).toFixed(2)}s` : '—';
+    const statusClass = agent.status || 'idle';
+    const name = friendlyName(agent.task);
+    $tooltip.innerHTML = `
+      <h4>${escapeHtml(name)} <small style="color:var(--muted);font-weight:400;font-size:11px">${agent.apid}</small></h4>
+      <p><b>Status:</b> <span class="status-badge ${statusClass}">${agent.status}</span></p>
+      <p class="task"><b>Task:</b> ${escapeHtml(agent.task)}</p>
+      <p><b>Duration:</b> ${dur}</p>
+      ${agent.error ? `<p style="color:var(--red)"><b>Error:</b> ${escapeHtml(agent.error)}</p>` : ''}
+    `;
+    $tooltip.classList.add('show');
+    const pad = 12;
+    let x = event.clientX + pad;
+    let y = event.clientY + pad;
+    const rect = $tooltip.getBoundingClientRect();
+    if (x + 320 > window.innerWidth) x = event.clientX - 320 - pad;
+    if (y + 150 > window.innerHeight) y = event.clientY - 150 - pad;
+    $tooltip.style.left = x + 'px';
+    $tooltip.style.top  = y + 'px';
+  }
+  function hideTooltip() { $tooltip.classList.remove('show'); }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  }
+
+  // Derive a short human-readable label from a task string
+  function friendlyName(task) {
+    if (!task) return '—';
+    let t = task.trim();
+    // Strip interpreter prefix: "sh: ", "node: ", "python: " etc.
+    t = t.replace(/^(sh|bash|zsh|node|python[23]?|ruby|go|java|perl|php):\s*/i, '');
+    // Strip leading path separators so "/usr/bin/ls" → "ls"
+    t = t.replace(/^(?:\.?\/)\S+/g, m => m.split('/').pop());
+    // Take only the first pipeline/chain clause
+    t = t.split(/\s*[|;&\n]\s*/)[0].trim();
+    // Up to 4 words, max 22 chars
+    const words = t.split(/\s+/).slice(0, 4).join(' ');
+    return words.length > 22 ? words.slice(0, 20) + '…' : (words || task.slice(0, 22));
+  }
+
+  // ── Stats ─────────────────────────────────────────────────────────────────
+  function updateStats(instant = false) {
+    let running = 0, queued = 0, done = 0, failed = 0;
+    for (const a of agents.values()) {
+      if (a.status === 'running' || a.status === 'spawning' || a.status === 'idle') running++;
+      else if (a.status === 'queued') queued++;
+      else if (a.status === 'completed') done++;
+      else if (a.status === 'failed' || a.status === 'killed') failed++;
+    }
+    if (instant) {
+      $total.textContent = agents.size;
+      $running.textContent = running;
+      $queued.textContent = queued;
+      $done.textContent = done;
+      $failed.textContent = failed;
+    } else {
+      animateCounter($total, agents.size);
+      animateCounter($running, running);
+      animateCounter($queued, queued);
+      animateCounter($done, done);
+      animateCounter($failed, failed);
+    }
+  }
+
+  // Smooth counter animation with easing
+  const counterAnimations = new Map();
+  function animateCounter(el, targetValue) {
+    const current = parseInt(el.textContent) || 0;
+    if (current === targetValue) return;
+    
+    // Cancel any existing animation for this element
+    if (counterAnimations.has(el)) {
+      cancelAnimationFrame(counterAnimations.get(el));
+    }
+    
+    const startTime = performance.now();
+    const duration = 200; // ms
+    const diff = targetValue - current;
+    
+    function animate(now) {
+      const elapsed = now - startTime;
+      const progress = Math.min(elapsed / duration, 1);
+      // Ease out cubic
+      const eased = 1 - Math.pow(1 - progress, 3);
+      const value = Math.round(current + diff * eased);
+      el.textContent = value;
+      
+      if (progress < 1) {
+        counterAnimations.set(el, requestAnimationFrame(animate));
+      } else {
+        counterAnimations.delete(el);
+      }
+    }
+    counterAnimations.set(el, requestAnimationFrame(animate));
+  }
+
+  // ── Log ───────────────────────────────────────────────────────────────────
+  function log(msg, cls = '') {
+    const line = document.createElement('div');
+    line.className = 'log-line new ' + cls;
+    line.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    $logList.appendChild(line);
+    $logList.scrollTop = $logList.scrollHeight;
+    // Remove animation class after it plays
+    setTimeout(() => line.classList.remove('new'), 300);
+    // Keep last 500 lines
+    while ($logList.children.length > 500) $logList.firstChild.remove();
+  }
+
+  // ── API ───────────────────────────────────────────────────────────────────
+  async function spawnAgents(task, count, parentApid = null) {
+    const endpoint = count > 1 ? '/api/batch' : '/api/spawn';
+    const body = count > 1 ? { task, count, parentApid } : { task, parentApid };
+    // Remove null parentApid from body
+    if (!body.parentApid) delete body.parentApid;
+    try {
+      const res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+    } catch (err) {
+      log('Spawn error: ' + err.message, 'error');
+    }
+  }
+
+  // Spawn a chain of agents (each as child of previous)
+  async function spawnChain(tasks) {
+    let parentApid = null;
+    for (const task of tasks) {
+      try {
+        const res = await fetch('/api/spawn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task, parentApid }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+        const data = await res.json();
+        parentApid = data.apid;
+        log(`Chain spawned: ${parentApid}`, 'event');
+      } catch (err) {
+        log('Chain spawn error: ' + err.message, 'error');
+        break;
+      }
+    }
+  }
+
+  // Spawn a fan-out structure (1 parent with N children)
+  async function spawnFanout(rootTask, childTasks) {
+    try {
+      const res = await fetch('/api/spawn', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ task: rootTask }),
+      });
+      if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+      const { apid: rootApid } = await res.json();
+      log(`Fan-out root spawned: ${rootApid}`, 'event');
+      
+      // Spawn all children under root
+      for (const task of childTasks) {
+        await fetch('/api/spawn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task, parentApid: rootApid }),
+        });
+      }
+      log(`Fan-out: ${childTasks.length} children spawned`, 'event');
+    } catch (err) {
+      log('Fan-out spawn error: ' + err.message, 'error');
+    }
+  }
+
+  // Parse custom tree DSL and spawn
+  async function spawnCustomTree(dsl) {
+    const lines = dsl.trim().split('\n');
+    const nodeStack = []; // { indent, apid }
+    
+    for (const line of lines) {
+      const match = line.match(/^(\s*(?:[├└│]─?\s*)?)(.*?):\s*(.*)$/);
+      if (!match) continue;
+      
+      const [, prefix, name, task] = match;
+      // Calculate indent level based on prefix characters
+      const indent = prefix.replace(/[├└│─\s]/g, '').length || (prefix.match(/[├└]/g)?.length || 0) * 2;
+      const actualIndent = Math.floor((prefix.length - name.length) / 2);
+      
+      // Find parent by popping stack until we find a lower indent
+      while (nodeStack.length > 0 && nodeStack[nodeStack.length - 1].indent >= actualIndent) {
+        nodeStack.pop();
+      }
+      
+      const parentApid = nodeStack.length > 0 ? nodeStack[nodeStack.length - 1].apid : null;
+      
+      try {
+        const res = await fetch('/api/spawn', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ task: task || name, parentApid }),
+        });
+        if (!res.ok) throw new Error((await res.json()).error || res.statusText);
+        const { apid } = await res.json();
+        nodeStack.push({ indent: actualIndent, apid });
+        log(`Tree node spawned: ${apid}`, 'event');
+      } catch (err) {
+        log('Tree spawn error: ' + err.message, 'error');
+      }
+    }
+  }
+
+  async function killAgent(apid) {
+    try {
+      await fetch(`/api/agents/${apid}`, { method: 'DELETE' });
+    } catch (err) {
+      log('Kill error: ' + err.message, 'error');
+    }
+  }
+
+  async function killAll() {
+    try {
+      await fetch('/api/agents', { method: 'DELETE' });
+    } catch (err) {
+      log('Kill-all error: ' + err.message, 'error');
+    }
+  }
+
+  // Instant clear without transitions (for kill-all)
+  function clearAllInstant() {
+    linkGlowGroup.selectAll('path').interrupt().remove();
+    linkGroup.selectAll('path').interrupt().remove();
+    haloGroup.selectAll('circle').interrupt().remove();
+    nodeGroup.selectAll('g.node').interrupt().remove();
+    centerOrbGroup.selectAll('g.tree-orb').interrupt().remove();
+    particleGroup.selectAll('circle').interrupt().remove();
+    treePositions.clear();
+    renderIdleState();
+  }
+
+  // ── SSE ───────────────────────────────────────────────────────────────────
+  function connectSSE() {
+    const es = new EventSource('/api/events');
+
+    es.addEventListener('init', e => {
+      const data = JSON.parse(e.data);
+      agents.clear();
+      for (const a of data.agents) agents.set(a.apid, a);
+      updateStats();
+      updateParentSelect();
+      renderTree();
+      log(`Connected — ${agents.size} agents`, 'event');
+    });
+
+    es.addEventListener('agent-event', e => {
+      const { event, apid, agent, extra } = JSON.parse(e.data);
+      if (agent) agents.set(agent.apid, agent);
+
+      // Log
+      if (event === 'spawned')   log(`↳ [${apid}] spawned`, 'event');
+      if (event === 'started')   log(`▶ [${apid}] started`, 'event');
+      if (event === 'progress')  log(`  [${apid}] ${extra}`);
+      if (event === 'completed') log(`✓ [${apid}] completed`, 'event');
+      if (event === 'failed')    log(`✗ [${apid}] FAILED: ${agent?.error || ''}`, 'error');
+      if (event === 'killed')    log(`✗ [${apid}] killed`, 'event');
+      if (event === 'queued')    log(`⏳ [${apid}] queued`, 'event');
+      if (event === 'drained')   log(`↑ [${apid}] dequeued`, 'event');
+
+      updateStats();
+      updateParentSelect();
+      renderTree();
+    });
+
+    es.addEventListener('clear-all', e => {
+      agents.clear();
+      particles = [];
+      log('🗑️ All agents cleared', 'event');
+      // Instant clear - no transitions
+      clearAllInstant();
+      updateStats(true);
+      updateParentSelect();
+    });
+
+    es.onerror = () => {
+      log('SSE disconnected — reconnecting...', 'error');
+      es.close();
+      setTimeout(connectSSE, 2000);
+    };
+  }
+
+  // ── Event listeners ───────────────────────────────────────────────────────
+  $spawn.addEventListener('click', () => {
+    const task = $task.value.trim();
+    const count = Math.max(1, parseInt($count.value, 10) || 1);
+    const parentApid = $parentSelect.value || null;
+    if (!task) { $task.focus(); return; }
+    spawnAgents(task, count, parentApid);
+  });
+
+  $task.addEventListener('keydown', e => {
+    if (e.key === 'Enter') $spawn.click();
+  });
+
+  $killAll.addEventListener('click', () => {
+    if (agents.size && confirm('Kill ALL agents?')) killAll();
+  });
+
+  window.addEventListener('resize', () => renderTree());
+
+  // ── Prompt Panel Controls ─────────────────────────────────────────────────
+  $builderBtn.addEventListener('click', () => {
+    $promptPanel.classList.toggle('show');
+  });
+
+  $closePanelBtn.addEventListener('click', () => {
+    $promptPanel.classList.remove('show');
+  });
+
+  // Close panel when clicking outside
+  document.addEventListener('click', (e) => {
+    if ($promptPanel.classList.contains('show') && 
+        !$promptPanel.contains(e.target) && 
+        e.target !== $builderBtn) {
+      $promptPanel.classList.remove('show');
+    }
+  });
+
+  // Prompt chips
+  document.querySelectorAll('.prompt-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const prompt = chip.dataset.prompt;
+      $task.value = prompt;
+      $promptPanel.classList.remove('show');
+      $task.focus();
+    });
+  });
+
+  // Hierarchy type selector
+  $hierarchyType.addEventListener('change', () => {
+    const type = $hierarchyType.value;
+    $chainDepthRow.style.display = type === 'chain' ? 'flex' : 'none';
+    $fanoutCountRow.style.display = type === 'fanout' ? 'flex' : 'none';
+    $customTreeRow.style.display = type === 'tree' ? 'flex' : 'none';
+    $customTreeInput.style.display = type === 'tree' ? 'block' : 'none';
+    updateHierarchyPreview();
+  });
+
+  $chainDepth.addEventListener('input', updateHierarchyPreview);
+  $fanoutCount.addEventListener('input', updateHierarchyPreview);
+  $customTreeInput.addEventListener('input', updateHierarchyPreview);
+  $hierarchyTask.addEventListener('input', updateHierarchyPreview);
+
+  function updateHierarchyPreview() {
+    const type = $hierarchyType.value;
+    const task = $hierarchyTask.value || 'Task {n}';
+    let preview = '';
+    
+    if (type === 'single') {
+      preview = `agent-1\n└─ ${task.replace('{n}', '1')}`;
+    } else if (type === 'chain') {
+      const depth = parseInt($chainDepth.value) || 3;
+      let lines = [];
+      for (let i = 1; i <= depth; i++) {
+        const indent = '  '.repeat(i - 1);
+        const prefix = i === 1 ? '' : '└─ ';
+        lines.push(`${indent}${prefix}agent-${i}: ${task.replace('{n}', i)}`);
+      }
+      preview = lines.join('\n');
+    } else if (type === 'fanout') {
+      const count = parseInt($fanoutCount.value) || 3;
+      let lines = [`agent-root: ${task.replace('{n}', 'root')}`];
+      for (let i = 1; i <= count; i++) {
+        const prefix = i === count ? '└─' : '├─';
+        lines.push(`  ${prefix} agent-${i}: ${task.replace('{n}', i)}`);
+      }
+      preview = lines.join('\n');
+    } else if (type === 'tree') {
+      preview = $customTreeInput.value || 'Enter tree structure...';
+    }
+    
+    $hierarchyPreview.innerHTML = preview.split('\n').map(line => 
+      `<div class="node-line">${escapeHtml(line)}</div>`
+    ).join('');
+  }
+
+  $previewHierarchyBtn.addEventListener('click', updateHierarchyPreview);
+
+  $spawnHierarchyBtn.addEventListener('click', async () => {
+    const type = $hierarchyType.value;
+    const taskTemplate = $hierarchyTask.value || 'Task {n}';
+    
+    if (type === 'single') {
+      spawnAgents(taskTemplate.replace('{n}', '1'), 1);
+    } else if (type === 'chain') {
+      const depth = parseInt($chainDepth.value) || 3;
+      const tasks = [];
+      for (let i = 1; i <= depth; i++) {
+        tasks.push(taskTemplate.replace('{n}', i));
+      }
+      await spawnChain(tasks);
+    } else if (type === 'fanout') {
+      const count = parseInt($fanoutCount.value) || 3;
+      const rootTask = taskTemplate.replace('{n}', 'root');
+      const childTasks = [];
+      for (let i = 1; i <= count; i++) {
+        childTasks.push(taskTemplate.replace('{n}', i));
+      }
+      await spawnFanout(rootTask, childTasks);
+    } else if (type === 'tree') {
+      await spawnCustomTree($customTreeInput.value);
+    }
+    
+    $promptPanel.classList.remove('show');
+  });
+
+  // ── Parent Select Update ──────────────────────────────────────────────────
+  function updateParentSelect() {
+    const currentValue = $parentSelect.value;
+    $parentSelect.innerHTML = '<option value="">No parent (root)</option>';
+    
+    // Add all current agents as potential parents
+    const sortedAgents = [...agents.values()].sort((a, b) => a.apid.localeCompare(b.apid));
+    for (const agent of sortedAgents) {
+      // Only show non-completed/failed agents as parents
+      if (agent.status === 'completed' || agent.status === 'failed' || agent.status === 'killed') continue;
+      const option = document.createElement('option');
+      option.value = agent.apid;
+      option.textContent = `↳ ${agent.apid}`;
+      if (agent.apid === currentValue) option.selected = true;
+      $parentSelect.appendChild(option);
+    }
+  }
+
+  // Initialize preview
+  updateHierarchyPreview();
+
+  // ── Cleanup ───────────────────────────────────────────────────────────────
+  window.addEventListener('beforeunload', () => {
+    if (animationFrame) cancelAnimationFrame(animationFrame);
+  });
+
+  // ── Init ──────────────────────────────────────────────────────────────────
+  connectSSE();
+  renderTree();
+
+  // Add initial idle hint when no agents
+  function renderIdleState() {
+    const { width, height } = container.getBoundingClientRect();
+    if (!width || !height) return;
+    
+    if (agents.size === 0) {
+      let idleHint = g.select('.idle-hint');
+      if (idleHint.empty()) {
+        idleHint = g.append('g').attr('class', 'idle-hint');
+        idleHint.append('circle').attr('r', 60).attr('fill', 'none').attr('stroke', 'var(--accent)').attr('stroke-width', 1).attr('stroke-dasharray', '8,4').attr('opacity', 0.3);
+        idleHint.append('circle').attr('r', 40).attr('fill', 'none').attr('stroke', 'var(--cyan)').attr('stroke-width', 1).attr('opacity', 0.4);
+        idleHint.append('circle').attr('r', 6).attr('fill', 'var(--accent)').attr('opacity', 0.6);
+        idleHint.append('text').attr('y', 90).attr('text-anchor', 'middle').attr('fill', 'var(--muted)').attr('font-size', '12px').text('Spawn an agent to begin');
+      }
+      idleHint.attr('transform', `translate(${width/2},${height/2})`).attr('opacity', 1);
+    } else {
+      g.select('.idle-hint').attr('opacity', 0);
+    }
+  }
+
+  // Wrap renderTree to always refresh idle state
+  // renderTreeImmediate = the raw layout function (no idle state, no transitions wrapper)
+  const renderTreeImmediate = renderTree;
+  renderTree = function() {
+    renderTreeImmediate();
+    renderIdleState();
+  };
+
+  renderIdleState();
+
+  // ── Provider Management ───────────────────────────────────────────────────
+  
+  const $providersBtn = document.getElementById('providersBtn');
+  const $providerPanel = document.getElementById('providerPanel');
+  const $closeProviderPanelBtn = document.getElementById('closeProviderPanelBtn');
+  const $addProviderBtn = document.getElementById('addProviderBtn');
+  const $providerForm = document.getElementById('providerForm');
+  const $providerList = document.getElementById('providerList');
+  const $providerType = document.getElementById('providerType');
+  const $providerName = document.getElementById('providerName');
+  const $providerApiKey = document.getElementById('providerApiKey');
+  const $providerBaseUrl = document.getElementById('providerBaseUrl');
+  const $providerModel = document.getElementById('providerModel');
+  const $providerIsDefault = document.getElementById('providerIsDefault');
+  const $saveProviderBtn = document.getElementById('saveProviderBtn');
+  const $cancelFormBtn = document.getElementById('cancelFormBtn');
+  const $formTitle = document.getElementById('formTitle');
+
+  let editingProviderId = null;
+  let availableProviders = [];
+
+  // Provider icons mapping
+  const providerIcons = {
+    'openrouter': '🔀',
+    'openai': '🤖',
+    'anthropic': '🧠',
+    'google': '🔍',
+    'azure-openai': '☁️',
+    'qwen': '🌏',
+    'ollama': '🦙',
+    'dummy': '🎭'
+  };
+
+  // Load available providers
+  async function loadAvailableProviders() {
+    try {
+      const res = await fetch('/api/providers');
+      const data = await res.json();
+      availableProviders = data.providers || [];
+      
+      // Populate provider type select
+      $providerType.innerHTML = '<option value="">Select a provider...</option>';
+      availableProviders.forEach(p => {
+        const option = document.createElement('option');
+        option.value = p.name;
+        option.textContent = p.label + (p.requiresApiKey ? '' : ' (No API Key)');
+        $providerType.appendChild(option);
+      });
+    } catch (err) {
+      console.error('Failed to load providers:', err);
+    }
+  }
+
+  // Load configured providers
+  async function loadProviderConfigs() {
+    try {
+      const res = await fetch('/api/provider-configs');
+      const data = await res.json();
+      renderProviderList(data.configs || []);
+    } catch (err) {
+      console.error('Failed to load provider configs:', err);
+      $providerList.innerHTML = '<div class="provider-empty">Error loading provider configurations</div>';
+    }
+  }
+
+  // Render provider list
+  function renderProviderList(configs) {
+    if (!configs.length) {
+      $providerList.innerHTML = '<div class="provider-empty">No providers configured yet. Click "Add New Provider" to get started.</div>';
+      return;
+    }
+
+    $providerList.innerHTML = '';
+    configs.forEach(config => {
+      const card = document.createElement('div');
+      card.className = 'provider-card' + (config.isDefault ? ' is-default' : '');
+      
+      const icon = providerIcons[config.provider] || '⚙️';
+      const providerLabel = availableProviders.find(p => p.name === config.provider)?.label || config.provider;
+      
+      card.innerHTML = `
+        <div class="provider-card-header">
+          <div class="provider-card-icon ${config.provider}">${icon}</div>
+          <div class="provider-card-info">
+            <div class="provider-card-name">${config.name}</div>
+            <div class="provider-card-type">${providerLabel}</div>
+          </div>
+          ${config.isDefault ? '<span class="provider-card-badge">Default</span>' : ''}
+        </div>
+        <div class="provider-card-details">
+          ${config.model ? `<span>Model:</span><span>${config.model}</span>` : ''}
+          ${config.baseUrl ? `<span>URL:</span><span>${config.baseUrl}</span>` : ''}
+          ${config.apiKeyPreview ? `<span>API Key:</span><span class="provider-card-apikey">${config.apiKeyPreview}</span>` : ''}
+        </div>
+        <div class="provider-card-actions">
+          ${!config.isDefault ? `<button class="secondary" style="background: linear-gradient(135deg, var(--accent), #4090e0); color: white; border-color: var(--accent);" data-id="${config.id}" data-action="set-default">⭐ Set as Default</button>` : ''}
+          <button class="secondary edit-btn" data-id="${config.id}">Edit</button>
+          <button class="secondary test-btn" data-id="${config.id}">Test</button>
+          ${!config.isDefault ? `<button class="danger delete-btn" data-id="${config.id}">Delete</button>` : ''}
+        </div>
+      `;
+      
+      $providerList.appendChild(card);
+    });
+
+    // Attach event handlers
+    document.querySelectorAll('.edit-btn').forEach(btn => {
+      btn.addEventListener('click', () => editProvider(btn.dataset.id));
+    });
+    document.querySelectorAll('.delete-btn').forEach(btn => {
+      btn.addEventListener('click', () => deleteProvider(btn.dataset.id));
+    });
+    document.querySelectorAll('.test-btn').forEach(btn => {
+      btn.addEventListener('click', () => testProvider(btn.dataset.id));
+    });
+    document.querySelectorAll('[data-action="set-default"]').forEach(btn => {
+      btn.addEventListener('click', () => setProviderAsDefault(btn.dataset.id));
+    });
+  }
+
+  // Set a provider as default
+  async function setProviderAsDefault(id) {
+    try {
+      const res = await fetch(`/api/provider-configs/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ isDefault: true }),
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to set provider as default');
+      }
+
+      loadProviderConfigs();
+      log('Default provider updated');
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  }
+
+  // Show provider form
+  function showProviderForm(isEdit = false, config = null) {
+    editingProviderId = isEdit ? config.id : null;
+    $formTitle.textContent = isEdit ? 'Edit Provider' : 'Add New Provider';
+    
+    if (isEdit && config) {
+      $providerType.value = config.provider;
+      $providerName.value = config.name;
+      $providerApiKey.value = '';  // Don't populate for security
+      $providerApiKey.placeholder = 'Leave empty to keep existing key';
+      $providerBaseUrl.value = config.baseUrl || '';
+      $providerModel.value = config.model || '';
+      $providerIsDefault.checked = config.isDefault;
+    } else {
+      $providerType.value = '';
+      $providerName.value = '';
+      $providerApiKey.value = '';
+      $providerApiKey.placeholder = 'sk-...';
+      $providerBaseUrl.value = '';
+      $providerModel.value = '';
+      $providerIsDefault.checked = false;
+    }
+    
+    updateFormHints();
+    $providerForm.classList.remove('collapsed');
+    $addProviderBtn.style.display = 'none';
+  }
+
+  // Update form hints based on selected provider
+  function updateFormHints() {
+    const provider = $providerType.value;
+    const baseUrlHint = document.querySelector('#providerBaseUrl + .form-hint');
+    const modelHint = document.querySelector('#providerModel + .form-hint');
+    const apiKeyHint = document.querySelector('#providerApiKey + .form-hint');
+    
+    if (!baseUrlHint || !modelHint || !apiKeyHint) return;
+    
+    switch (provider) {
+      case 'azure-openai':
+        baseUrlHint.textContent = 'Azure endpoint (e.g., https://my-resource.openai.azure.com) — Required';
+        modelHint.textContent = 'Deployment name (e.g., gpt-4) — Required';
+        apiKeyHint.textContent = 'Your Azure OpenAI resource key';
+        break;
+      case 'openrouter':
+        baseUrlHint.textContent = 'Custom API endpoint (usually not needed)';
+        modelHint.textContent = 'Model to use (e.g., openai/gpt-4o, anthropic/claude-3.5-sonnet)';
+        apiKeyHint.textContent = 'Your OpenRouter API key (starts with sk-or-v1-...)';
+        break;
+      case 'openai':
+        baseUrlHint.textContent = 'Custom API endpoint (usually not needed)';
+        modelHint.textContent = 'Model to use (e.g., gpt-4o, gpt-4-turbo)';
+        apiKeyHint.textContent = 'Your OpenAI API key (starts with sk-...)';
+        break;
+      case 'anthropic':
+        baseUrlHint.textContent = 'Custom API endpoint (usually not needed)';
+        modelHint.textContent = 'Model to use (e.g., claude-3-5-sonnet-20241022)';
+        apiKeyHint.textContent = 'Your Anthropic API key (starts with sk-ant-...)';
+        break;
+      default:
+        baseUrlHint.textContent = 'Custom API endpoint (usually not needed)';
+        modelHint.textContent = 'Model to use by default with this provider';
+        apiKeyHint.textContent = 'Your API key';
+    }
+  }
+
+  // Hide provider form
+  function hideProviderForm() {
+    $providerForm.classList.add('collapsed');
+    $addProviderBtn.style.display = 'block';
+    editingProviderId = null;
+  }
+
+  // Save provider
+  async function saveProvider() {
+    const provider = $providerType.value;
+    const name = $providerName.value.trim();
+    const apiKey = $providerApiKey.value.trim();
+    const baseUrl = $providerBaseUrl.value.trim();
+    const model = $providerModel.value.trim();
+    const isDefault = $providerIsDefault.checked;
+
+    if (!provider || !name) {
+      alert('Please select a provider type and enter a configuration name.');
+      return;
+    }
+
+    // Check if API key is required
+    const providerInfo = availableProviders.find(p => p.name === provider);
+    if (providerInfo?.requiresApiKey && !apiKey && !editingProviderId) {
+      alert('This provider requires an API key.');
+      return;
+    }
+
+    // Azure OpenAI requires endpoint and deployment
+    if (provider === 'azure-openai') {
+      if (!baseUrl) {
+        alert('Azure OpenAI requires an endpoint URL (Base URL field).');
+        return;
+      }
+      if (!model) {
+        alert('Azure OpenAI requires a deployment name (Default Model field).');
+        return;
+      }
+    }
+
+    const payload = {
+      provider,
+      name,
+      ...(apiKey && { apiKey }),
+      ...(baseUrl && { baseUrl }),
+      ...(model && { model }),
+      isDefault,
+    };
+
+    try {
+      const url = editingProviderId 
+        ? `/api/provider-configs/${editingProviderId}`
+        : '/api/provider-configs';
+      const method = editingProviderId ? 'PUT' : 'POST';
+      
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || 'Failed to save provider');
+      }
+
+      hideProviderForm();
+      loadProviderConfigs();
+      log(`Provider ${editingProviderId ? 'updated' : 'added'}: ${name}`);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  }
+
+  // Edit provider
+  async function editProvider(id) {
+    try {
+      const res = await fetch('/api/provider-configs');
+      const data = await res.json();
+      const config = data.configs.find(c => c.id === id);
+      if (config) {
+        showProviderForm(true, config);
+      }
+    } catch (err) {
+      alert(`Error loading provider: ${err.message}`);
+    }
+  }
+
+  // Delete provider
+  async function deleteProvider(id) {
+    if (!confirm('Delete this provider configuration?')) return;
+
+    try {
+      const res = await fetch(`/api/provider-configs/${id}`, {
+        method: 'DELETE',
+      });
+
+      if (!res.ok) {
+        throw new Error('Failed to delete provider');
+      }
+
+      loadProviderConfigs();
+      log('Provider deleted');
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  }
+
+  // Test provider
+  async function testProvider(id) {
+    const btn = document.querySelector(`.test-btn[data-id="${id}"]`);
+    const originalText = btn.textContent;
+    btn.textContent = 'Testing...';
+    btn.disabled = true;
+
+    try {
+      const res = await fetch(`/api/provider-configs/${id}/test`, {
+        method: 'POST',
+      });
+      const data = await res.json();
+
+      if (data.success) {
+        alert(`✅ Provider test successful!\n\nModel: ${data.model}\nResponse: ${data.response}`);
+      } else {
+        alert(`❌ Provider test failed:\n\n${data.error}`);
+      }
+    } catch (err) {
+      alert(`❌ Test error: ${err.message}`);
+    } finally {
+      btn.textContent = originalText;
+      btn.disabled = false;
+    }
+  }
+
+  // Event handlers
+  $providersBtn.addEventListener('click', () => {
+    $providerPanel.classList.toggle('show');
+    if ($providerPanel.classList.contains('show')) {
+      loadProviderConfigs();
+    }
+  });
+
+  $closeProviderPanelBtn.addEventListener('click', () => {
+    $providerPanel.classList.remove('show');
+    hideProviderForm();
+  });
+
+  $addProviderBtn.addEventListener('click', () => {
+    showProviderForm(false);
+  });
+
+  $cancelFormBtn.addEventListener('click', () => {
+    hideProviderForm();
+  });
+
+  $saveProviderBtn.addEventListener('click', () => {
+    saveProvider();
+  });
+
+  $providerType.addEventListener('change', () => {
+    updateFormHints();
+  });
+
+  // Close panel when clicking outside
+  document.addEventListener('click', (e) => {
+    if ($providerPanel.classList.contains('show') && 
+        !$providerPanel.contains(e.target) && 
+        e.target !== $providersBtn) {
+      $providerPanel.classList.remove('show');
+      hideProviderForm();
+    }
+  });
+
+  // Initialize
+  loadAvailableProviders();
+
+})();
+  </script>
+</body>
+</html>

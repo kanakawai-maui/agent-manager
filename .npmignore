@@ -1,0 +1,38 @@
+# Source files (publish compiled dist/ instead)
+src/
+*.spec.ts
+*.test.ts
+
+# Development configs
+tsconfig.json
+jest.config.js
+.gitignore
+.eslintrc*
+.prettierrc*
+
+# Documentation
+docs/
+
+# Coverage and test artifacts
+coverage/
+*.log
+
+# Git and GitHub
+.git/
+.github/
+.gitattributes
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment and secrets
+.env*
+provider-configs.json
