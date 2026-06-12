@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Agent Manager Dashboard — Demo</title>
+  <script src="https://d3js.org/d3.v7.min.js"></script>
+  <style>
+    :root {
+      --bg: #0d1117;
+      --surface: #161b22;
+      --border: #30363d;
+      --text: #c9d1d9;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --green: #3fb950;
+      --yellow: #d29922;
+      --red: #f85149;
+      --purple: #a371f7;
+      --cyan: #56d4dd;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+    .connection-notice {
+      position: fixed;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 40px;
+      max-width: 600px;
+      text-align: center;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.4);
+      z-index: 1000;
+    }
+    .connection-notice h2 {
+      font-size: 24px;
+      margin-bottom: 16px;
+      color: var(--accent);
+    }
+    .connection-notice p {
+      color: var(--muted);
+      margin-bottom: 24px;
+      line-height: 1.6;
+    }
+    .connection-notice code {
+      background: var(--bg);
+      padding: 16px;
+      border-radius: 8px;
+      display: block;
+      font-family: 'SF Mono', Monaco, monospace;
+      font-size: 13px;
+      margin: 16px 0;
+      border: 1px solid var(--border);
+      color: var(--green);
+      text-align: left;
+    }
+    .connection-notice a {
+      display: inline-block;
+      padding: 10px 20px;
+      background: var(--accent);
+      color: white;
+      text-decoration: none;
+      border-radius: 6px;
+      font-weight: 500;
+      margin-top: 16px;
+    }
+    .connection-notice a:hover {
+      filter: brightness(1.1);
+    }
+  </style>
+</head>
+<body>
+  <div class="connection-notice">
+    <h2>⚡ Dashboard Requires Backend Server</h2>
+    <p>The Agent Manager dashboard requires the Node.js web server to be running locally to function.</p>
+    
+    <p>To run the dashboard:</p>
+    <code>npm install -g kanakawai-agent-manager<br>agent-manager web</code>
+    
+    <p>Then open <strong>http://localhost:3001</strong> in your browser.</p>
+    
+    <a href="https://github.com/kanakawai-maui/agent-manager">View on GitHub</a>
+  </div>
+</body>
+</html>

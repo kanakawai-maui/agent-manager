@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: agent-manager
+    runtime: docker
+    plan: free
+    env: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: PORT
+        value: 3001
+      - key: NODE_ENV
+        value: production
+    healthCheckPath: /
