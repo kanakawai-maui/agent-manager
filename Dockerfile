@@ -6,18 +6,24 @@ WORKDIR /app
 
 # Copy package files
 COPY package*.json ./
+COPY tsconfig.json ./
 
 # Install ALL dependencies (including devDependencies for build)
 RUN npm ci
 
-# Copy source code
-COPY . .
+# Copy source code (but not build artifacts)
+COPY src ./src
+COPY public ./public
+COPY provider-configs.example.json ./
+
+# Clean build
+RUN rm -rf dist .tsbuildinfo
 
 # Build TypeScript
 RUN npm run build
 
 # Debug: List the dist directory to verify files
-RUN echo "=== Files in dist/ ===" && ls -la dist/ && echo "=== Files in dist root ===" && ls -la dist/*.js || true
+RUN echo "=== Files in dist/ ===" && ls -laR dist/
 
 # Remove devDependencies to reduce image size
 RUN npm prune --production
