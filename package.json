@@ -1,5 +1,5 @@
 {
-  "name": "@kanakawai-maui/agent-manager",
+  "name": "kanakawai-agent-manager",
   "version": "1.0.0",
   "description": "CLI tool and web dashboard for spawning and managing parallel agent worker processes in a tree structure",
   "keywords": [
