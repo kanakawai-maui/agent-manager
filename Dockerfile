@@ -16,6 +16,9 @@ COPY . .
 # Build TypeScript
 RUN npm run build
 
+# Debug: List the dist directory to verify files
+RUN echo "=== Files in dist/ ===" && ls -la dist/ && echo "=== Files in dist root ===" && ls -la dist/*.js || true
+
 # Remove devDependencies to reduce image size
 RUN npm prune --production
 
